@@ -33,7 +33,7 @@ parser.add_argument('--epochs', type=int, default=15)
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--momentum', type=float, default=0.9)
 parser.add_argument('--weight_decay', type=float, default=5e-4)
-parser.add_argument('--show_step', type=int, default=100)
+parser.add_argument('--show_step', type=int, default=1)
 parser.add_argument('--gpu', type=str, default='0')
 parser.add_argument('--viz', action='store_true', default=False)
 
@@ -125,14 +125,18 @@ if __name__ == '__main__':
         ego_obj_acc = AverageMeter()
 
         for step, (exocentric_image, egocentric_image, aff_label) in enumerate(TrainLoader):
-            aff_label = aff_label.cuda().long()  # b x n x 36
-            exo = exocentric_image.cuda()  # b x n x 3 x 224 x 224
-            ego = egocentric_image.cuda()
+            aff_label = aff_label.cuda().long()  # aff_label标签信息，就是上面的对应的第几个类别
+            exo = exocentric_image.cuda()  # b x n x 3 x 224 x 224  其中这个n就是对应有几个exo来形成监督信号
+            ego = egocentric_image.cuda()  # b x 3 x 224 x 224
 
             masks, logits, loss_proto, loss_con = model(exo, ego, aff_label, (epoch, args.warm_epoch))
-
-            exo_aff_logits = logits['aff']
-            num_exo = exo.shape[1]
+            #         masks = {'exo_aff': gt_aff_cam, 'ego_sam': ego_sam,
+            #                  'pred': (sim_maps, exo_sim_maps, part_score, gt_ego_cam)}
+            #         logits = {'aff': aff_logits, 'aff_ego': aff_logits_ego}
+            # exo_aff[16,3,14,14]   ego_sam[16,14,14]  sim_maps[16,3,14,14]  exo_sim_maps[16,3,3,14,14] part_score[16,3] gt_ego_cam[16,14,14]
+            # aff[16,3,25]    aff_ego[16,25]
+            exo_aff_logits = logits['aff']  # [16,3,25]
+            num_exo = exo.shape[1]  #3
             exo_aff_loss = torch.zeros(1).cuda()
             for n in range(num_exo):
                 exo_aff_loss += nn.CrossEntropyLoss().cuda()(exo_aff_logits[:, n], aff_label)
@@ -149,7 +153,7 @@ if __name__ == '__main__':
             loss.backward()
             optimizer.step()
 
-            cur_batch = exo.size(0)
+            cur_batch = exo.size(0)  # 16
             exo_acc = 100. * compute_cls_acc(logits['aff'].mean(1), aff_label)
             exo_aff_acc.updata(exo_acc, cur_batch)
             metric_dict = {'exo_aff_acc': exo_aff_acc.avg}
